@@ -42,7 +42,8 @@ UPDATE_INTERVAL_HOURS = 2  # 自动更新间隔（小时）
 
 # 你追踪的船舶列表（可自行增删）
 VESSELS_TO_QUERY = [
-    {"name": "AL MURAYKH", "voyage": "622W"},
+    {"name": "YM TOPMOST", "voyage": "025W"},
+    {"name": "MAREN MAERSK", "voyage": "630W"},
 ]
 
 # ==========================================
