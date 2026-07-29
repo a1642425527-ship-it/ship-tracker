@@ -141,6 +141,11 @@ def fetch_and_parse(vessel_name, voyage, current_token):
         response.raise_for_status()
         data = response.json()
 
+        # API 返回 code=401 也表示 Token 过期（但 HTTP 状态码是 200）
+        if data.get('code') == 401:
+            print(f"\n⚠️ [{vessel_name}] Token 已过期（API 返回 code=401）")
+            return "EXPIRED"
+
         if data.get('code') != 200 or not data.get('data') or not data['data'].get('list'):
             print(f"\n⚠️ 未查询到 [{vessel_name}] 航次 [{voyage}] 的排期信息。")
             return "NO_DATA"
