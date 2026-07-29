@@ -219,6 +219,24 @@ def send_dingtalk_msg(data_list):
         print(f"⚠️ 钉钉推送出现异常: {e}")
 
 
+def send_dingtalk_error(title, message):
+    """发送错误/告警消息到钉钉"""
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    content = f"### ⛔ {title}\n*{current_time}*\n\n---\n\n{message}\n\n---\n\n> 请及时处理，以免影响船舶排期跟踪"
+    payload = {
+        "msgtype": "markdown",
+        "markdown": {
+            "title": f"⛔ {title}",
+            "text": content
+        }
+    }
+    try:
+        requests.post(DINGTALK_WEBHOOK, json=payload, timeout=10)
+        print(f"📣 钉钉告警已发送: {title}")
+    except Exception as e:
+        print(f"⚠️ 钉钉告警发送失败: {e}")
+
+
 def save_to_excel(data_list):
     """将数据写入 Excel 并进行简单排版"""
     if not data_list:
@@ -332,6 +350,14 @@ def run_once():
 
     api_token = load_token()
     if not api_token:
+        send_dingtalk_error(
+            "❌ NPEDI Token 未配置",
+            "**船舶动态跟踪系统** 未找到有效的 NPEDI Token。\n\n"
+            "💡 **解决方法：**\n"
+            "1. 在 Windows 上进入 ship-tracker 目录\n"
+            "2. 运行 `python ship_tracker.py --grab-token` 抓取新 Token\n"
+            "3. 联系管理员将新 Token 设为 GitHub Secret `NPEDI_TOKEN`"
+        )
         print("❌ 未找到 Token！")
         print("💡 请先本地运行: python ship_tracker.py --grab-token")
         print("   或者设置环境变量: export NPEDI_TOKEN=你的Token")
@@ -347,9 +373,18 @@ def run_once():
             result = fetch_and_parse(target_name, target_voyage, api_token)
 
             if result == "EXPIRED":
+                send_dingtalk_error(
+                    "⛔ NPEDI Token 已过期",
+                    "**船舶动态跟踪系统** 检测到 NPEDI Token 已失效（HTTP 401）。\n\n"
+                    f"受影响船舶：**{target_name}** 航次 **{target_voyage}**\n\n"
+                    "💡 **解决方法：**\n"
+                    "1. 在 Windows 上进入 ship-tracker 目录\n"
+                    "2. 运行 `python ship_tracker.py --grab-token` 抓取新 Token\n"
+                    "3. 脚本会自动推送到 GitHub Secrets（或联系管理员手动更新）"
+                )
                 print("⚠️ Token 已过期！请重新抓取。")
                 print(f"💡 本地运行: python ship_tracker.py --grab-token")
-                return False
+                sys.exit(1)
             elif isinstance(result, dict):
                 results_to_save.append(result)
                 break
