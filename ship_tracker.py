@@ -295,49 +295,117 @@ def save_to_excel(data_list):
 # Token 推送至 GitHub
 # ==========================================
 
+GITHUB_REPO = "a1642425527-ship-it/ship-tracker"
+GITHUB_PAT_FILE = "GITHUB_PAT.txt"
+
+
 def push_token_to_github(new_token):
-    """将新 Token 通过 gh CLI 写入 GitHub Secret（首选方法）"""
+    """将新 Token 推送到 GitHub Secrets（自动选择可用方式）"""
     print("\n🔄 正在将新 Token 推送到 GitHub Secrets...")
+
+    # 方法1: gh CLI
+    if _try_push_via_gh(new_token):
+        return True
+
+    # 方法2: GitHub API + PAT
+    if _try_push_via_api(new_token):
+        return True
+
+    # 都失败，打印手动操作指引
+    print(f"\n💡 请手动更新 GitHub Secret:")
+    print(f"   ① 打开 https://github.com/{GITHUB_REPO}/settings/secrets/actions")
+    print(f"   ② 点击 NPEDI_TOKEN 右边的编辑按钮")
+    print(f"   ③ 粘贴以下 Token 并保存:")
+    print(f"      {new_token}")
+    return False
+
+
+def _try_push_via_gh(new_token):
+    """通过 gh CLI 推送"""
     try:
-        # 检查是否已登录 gh
+        subprocess.run(["gh", "--version"], capture_output=True, check=True, timeout=5)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+    try:
         result = subprocess.run(
-            ["gh", "auth", "status"],
-            capture_output=True, text=True, timeout=10
+            ["gh", "auth", "status"], capture_output=True, text=True, timeout=10
         )
         if result.returncode != 0:
-            print("⚠️ gh CLI 未登录，跳过 GitHub Secret 自动更新。")
-            print(f"\n💡 请手动完成以下两步：")
-            print(f"   ① 在浏览器打开你的 GitHub 仓库 → Settings → Secrets and variables → Actions")
-            print(f"   ② 点击 New repository secret → Name: NPEDI_TOKEN → Value: {new_token}")
             return False
 
-        # 获取当前仓库的 owner/name
         result = subprocess.run(
-            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-            capture_output=True, text=True, timeout=10
-        )
-        if result.returncode != 0:
-            print("⚠️ 无法获取仓库信息，跳过自动更新。")
-            return False
-
-        repo_full = result.stdout.strip()
-        print(f"   检测到仓库: {repo_full}")
-
-        # 写入 Secret
-        result = subprocess.run(
-            ["gh", "secret", "set", "NPEDI_TOKEN", "--repo", repo_full],
-            input=new_token,
-            capture_output=True, text=True, timeout=30
+            ["gh", "secret", "set", "NPEDI_TOKEN", "--repo", GITHUB_REPO],
+            input=new_token, capture_output=True, text=True, timeout=30
         )
         if result.returncode == 0:
-            print(f"✅ Token 已成功推送至 GitHub Secrets！（后续 Action 将自动使用新 Token）")
+            print("✅ Token 已通过 gh CLI 推送至 GitHub Secrets！")
             return True
-        else:
-            print(f"⚠️ 设置 Secret 失败: {result.stderr.strip()}")
+    except Exception:
+        pass
+    return False
+
+
+def _try_push_via_api(new_token):
+    """通过 GitHub API + PAT 推送"""
+    if not os.path.exists(GITHUB_PAT_FILE):
+        print(f"   ⚠️ 未找到 {GITHUB_PAT_FILE}，跳过 API 方式。")
+        print(f"   💡 创建 {GITHUB_PAT_FILE} 后即可自动推送（见 README）")
+        return False
+
+    with open(GITHUB_PAT_FILE, "r", encoding="utf-8") as f:
+        pat = f.read().strip()
+
+    if not pat:
+        return False
+
+    headers = {
+        "Authorization": f"Bearer {pat}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    try:
+        # 获取公钥
+        print("   📡 正在获取 GitHub Secrets 公钥...")
+        resp = requests.get(
+            f"https://api.github.com/repos/{GITHUB_REPO}/actions/secrets/public-key",
+            headers=headers, timeout=15
+        )
+        if resp.status_code != 200:
+            print(f"   ⚠️ 获取公钥失败 (HTTP {resp.status_code})")
             return False
 
-    except Exception as e:
-        print(f"⚠️ 推送 Token 到 GitHub 失败: {e}")
+        key_data = resp.json()
+        key_id = key_data["key_id"]
+        public_key_b64 = key_data["key"]
+
+        # 加密 Token（使用 libsodium crypto_box_seal）
+        try:
+            import nacl.bindings
+            import base64
+            pub_key_bytes = base64.b64decode(public_key_b64)
+            encrypted = nacl.bindings.crypto_box_seal(new_token.encode(), pub_key_bytes)
+            encrypted_b64 = base64.b64encode(encrypted).decode()
+        except ImportError:
+            print("   ⚠️ 需要安装 PyNaCl 才能加密: pip install pynacl")
+            return False
+
+        # 写入 Secret
+        resp = requests.put(
+            f"https://api.github.com/repos/{GITHUB_REPO}/actions/secrets/NPEDI_TOKEN",
+            headers=headers,
+            json={"encrypted_value": encrypted_b64, "key_id": key_id},
+            timeout=15
+        )
+        if resp.status_code in (201, 204):
+            print("✅ Token 已通过 API 推送至 GitHub Secrets！（下次 Action 自动使用）")
+            return True
+        else:
+            print(f"   ⚠️ 设置 Secret 失败: {resp.text}")
+            return False
+
+    except requests.exceptions.RequestException as e:
+        print(f"   ⚠️ API 请求失败: {e}")
         return False
 
 # ==========================================

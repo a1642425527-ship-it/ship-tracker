@@ -1,5 +1,6 @@
 # 本地 Token 文件（含敏感信息，不要提交到仓库）
 token.txt
+GITHUB_PAT.txt
 
 # Python 虚拟环境
 .venv/
