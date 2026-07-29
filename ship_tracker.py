@@ -268,43 +268,38 @@ def _was_last_run_also_failed():
     return False
 
 
-def send_dingtalk_error(title, message):
-    """发送错误/告警消息到钉钉（自动去重：CI中上一次也失败则跳过）"""
-    if "GITHUB_ACTIONS" in os.environ:
-        dedup_key = f"dingtalk_alert_{title}"
-        dedup_file = os.environ.get("ALERT_DEDUP_FILE")
-        if dedup_file and os.path.exists(dedup_file):
-            with open(dedup_file) as f:
-                if f.read().strip() == dedup_key:
-                    print(f"   ⏭️ 跳过重复告警（{dedup_file} 存在且匹配）")
-                    return
+def send_email_alert(subject, body):
+    """通过 QQ 邮箱 SMTP 发送告警邮件"""
+    import smtplib
+    from email.mime.text import MIMEText
 
+    smtp_user = "1642425527@qq.com"
+    smtp_pass = os.environ.get("QQ_SMTP_PASS")
+    to_email = "1642425527@qq.com"
+
+    if not smtp_pass:
+        print("⚠️ 未设置 QQ_SMTP_PASS 环境变量，跳过邮件告警。")
+        return
+
+    # 去重检查
+    if "GITHUB_ACTIONS" in os.environ:
         if _was_last_run_also_failed():
-            print(f"   ⏭️ 跳过重复告警（上一次运行也已失败，已通知过）")
+            print(f"   ⏭️ 跳过重复邮件告警（上一次运行也已失败）")
             return
 
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    content = f"### ⛔ {title}\n*{current_time}*\n\n---\n\n{message}\n\n---\n\n> 请及时处理，以免影响船舶排期跟踪"
-    payload = {
-        "msgtype": "markdown",
-        "markdown": {
-            "title": f"⛔ {title}",
-            "text": content
-        }
-    }
     try:
-        requests.post(DINGTALK_WEBHOOK, json=payload, timeout=10)
-        print(f"📣 钉钉告警已发送: {title}")
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["Subject"] = subject
+        msg["From"] = smtp_user
+        msg["To"] = to_email
 
-        # 在 CI 中创建去重标记文件
-        if "GITHUB_ACTIONS" in os.environ:
-            dedup_file = os.environ.get("ALERT_DEDUP_FILE")
-            if dedup_file:
-                os.makedirs(os.path.dirname(dedup_file) or ".", exist_ok=True)
-                with open(dedup_file, "w") as f:
-                    f.write(dedup_key)
+        with smtplib.SMTP_SSL("smtp.qq.com", 465, timeout=15) as server:
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+
+        print(f"📧 告警邮件已发送至 {to_email}: {subject}")
     except Exception as e:
-        print(f"⚠️ 钉钉告警发送失败: {e}")
+        print(f"⚠️ 邮件发送失败: {e}")
 
 
 def save_to_excel(data_list):
@@ -488,13 +483,13 @@ def run_once():
 
     api_token = load_token()
     if not api_token:
-        send_dingtalk_error(
-            "❌ NPEDI Token 未配置",
-            "**船舶动态跟踪系统** 未找到有效的 NPEDI Token。\n\n"
-            "💡 **解决方法：**\n"
+        send_email_alert(
+            "⛔ 船舶跟踪系统 - Token 未配置",
+            "船舶动态跟踪系统：未找到有效的 NPEDI Token\n\n"
+            "解决方法：\n"
             "1. 在 Windows 上进入 ship-tracker 目录\n"
-            "2. 运行 `python ship_tracker.py --grab-token` 抓取新 Token\n"
-            "3. 联系管理员将新 Token 设为 GitHub Secret `NPEDI_TOKEN`"
+            "2. 运行 python ship_tracker.py --grab-token 抓取新 Token\n"
+            "3. 脚本会自动推送到 GitHub Secrets"
         )
         print("❌ 未找到 Token！")
         print("💡 请先本地运行: python ship_tracker.py --grab-token")
@@ -511,14 +506,14 @@ def run_once():
             result = fetch_and_parse(target_name, target_voyage, api_token)
 
             if result == "EXPIRED":
-                send_dingtalk_error(
-                    "⛔ NPEDI Token 已过期",
-                    "**船舶动态跟踪系统** 检测到 NPEDI Token 已失效（HTTP 401）。\n\n"
-                    f"受影响船舶：**{target_name}** 航次 **{target_voyage}**\n\n"
-                    "💡 **解决方法：**\n"
-                    "1. 在 Windows 上进入 ship-tracker 目录\n"
-                    "2. 运行 `python ship_tracker.py --grab-token` 抓取新 Token\n"
-                    "3. 脚本会自动推送到 GitHub Secrets（或联系管理员手动更新）"
+                send_email_alert(
+                    "⛔ 船舶跟踪系统 - NPEDI Token 已过期",
+                    f"船舶动态跟踪系统：NPEDI Token 已失效\n\n"
+                    f"受影响船舶：{target_name} 航次 {target_voyage}\n\n"
+                    f"解决方法：\n"
+                    f"1. 在 Windows 上进入 ship-tracker 目录\n"
+                    f"2. 运行 python ship_tracker.py --grab-token 抓取新 Token\n"
+                    f"3. 脚本会自动推送到 GitHub Secrets"
                 )
                 print("⚠️ Token 已过期！请重新抓取。")
                 print(f"💡 本地运行: python ship_tracker.py --grab-token")
