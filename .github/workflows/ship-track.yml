@@ -1,0 +1,42 @@
+name: 🚢 船舶动态跟踪
+
+on:
+  # 定时调度：每 2 小时运行一次（可自行修改 cron 表达式）
+  schedule:
+    - cron: '0 */2 * * *'
+
+  # 支持手动触发（在 GitHub Actions 页面点 "Run workflow"）
+  workflow_dispatch:
+
+jobs:
+  track:
+    name: 查询船舶排期
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 检出代码
+        uses: actions/checkout@v4
+
+      - name: 🐍 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📦 安装依赖
+        run: |
+          pip install requests openpyxl
+
+      - name: 🚢 执行船舶查询
+        run: python ship_tracker.py
+        env:
+          # Token 从 GitHub Secrets 读取（需要在仓库设置中手动配置）
+          NPEDI_TOKEN: ${{ secrets.NPEDI_TOKEN }}
+
+      - name: 📎 上传 Excel 报表（Artifact，可下载查看）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 船舶动态报表-${{ github.run_id }}
+          path: 船舶动态跟踪.xlsx
+          retention-days: 30
