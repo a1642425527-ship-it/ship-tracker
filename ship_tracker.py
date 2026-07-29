@@ -219,8 +219,65 @@ def send_dingtalk_msg(data_list):
         print(f"⚠️ 钉钉推送出现异常: {e}")
 
 
+def _was_last_run_also_failed():
+    """检查 GitHub Actions 上一次运行是否也失败了（避免重复发钉钉告警）"""
+    if "GITHUB_ACTIONS" not in os.environ:
+        return False  # 本地运行，不检查
+
+    gh_token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    workflow_name = os.environ.get("GITHUB_WORKFLOW")
+    if not all([gh_token, repo, run_id, workflow_name]):
+        return False
+
+    try:
+        # 查询当前 workflow 的最近 2 次完成运行
+        resp = requests.get(
+            f"https://api.github.com/repos/{repo}/actions/runs",
+            headers={
+                "Authorization": f"Bearer {gh_token}",
+                "Accept": "application/vnd.github.v3+json"
+            },
+            params={
+                "status": "completed",
+                "per_page": 2
+            },
+            timeout=10
+        )
+        if resp.status_code != 200:
+            return False
+
+        runs = resp.json().get("workflow_runs", [])
+        if len(runs) < 2:
+            return False  # 只有一次运行，没有"上一次"
+
+        # 跳过当前 run，检查上一次
+        for r in runs:
+            if str(r["id"]) == str(run_id):
+                continue
+            return r.get("conclusion") == "failure"
+
+    except Exception:
+        pass
+    return False
+
+
 def send_dingtalk_error(title, message):
-    """发送错误/告警消息到钉钉"""
+    """发送错误/告警消息到钉钉（自动去重：CI中上一次也失败则跳过）"""
+    if "GITHUB_ACTIONS" in os.environ:
+        dedup_key = f"dingtalk_alert_{title}"
+        dedup_file = os.environ.get("ALERT_DEDUP_FILE")
+        if dedup_file and os.path.exists(dedup_file):
+            with open(dedup_file) as f:
+                if f.read().strip() == dedup_key:
+                    print(f"   ⏭️ 跳过重复告警（{dedup_file} 存在且匹配）")
+                    return
+
+        if _was_last_run_also_failed():
+            print(f"   ⏭️ 跳过重复告警（上一次运行也已失败，已通知过）")
+            return
+
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     content = f"### ⛔ {title}\n*{current_time}*\n\n---\n\n{message}\n\n---\n\n> 请及时处理，以免影响船舶排期跟踪"
     payload = {
@@ -233,6 +290,14 @@ def send_dingtalk_error(title, message):
     try:
         requests.post(DINGTALK_WEBHOOK, json=payload, timeout=10)
         print(f"📣 钉钉告警已发送: {title}")
+
+        # 在 CI 中创建去重标记文件
+        if "GITHUB_ACTIONS" in os.environ:
+            dedup_file = os.environ.get("ALERT_DEDUP_FILE")
+            if dedup_file:
+                os.makedirs(os.path.dirname(dedup_file) or ".", exist_ok=True)
+                with open(dedup_file, "w") as f:
+                    f.write(dedup_key)
     except Exception as e:
         print(f"⚠️ 钉钉告警发送失败: {e}")
 

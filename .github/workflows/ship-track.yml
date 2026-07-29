@@ -29,8 +29,12 @@ jobs:
       - name: 🚢 执行船舶查询
         run: python ship_tracker.py
         env:
-          # Token 从 GitHub Secrets 读取（需要在仓库设置中手动配置）
           NPEDI_TOKEN: ${{ secrets.NPEDI_TOKEN }}
+          # 用于检查上一次运行是否也失败（避免重复告警）
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_WORKFLOW: ${{ github.workflow }}
 
       - name: 📎 上传 Excel 报表（Artifact，可下载查看）
         if: always()
