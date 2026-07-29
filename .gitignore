@@ -1,6 +1,10 @@
 # 本地 Token 文件（含敏感信息，不要提交到仓库）
 token.txt
 
+# Python 虚拟环境
+.venv/
+venv/
+
 # Python 缓存
 __pycache__/
 *.pyc
