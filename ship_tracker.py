@@ -334,7 +334,7 @@ def run_once():
         print("❌ 未找到 Token！")
         print("💡 请先本地运行: python ship_tracker.py --grab-token")
         print("   或者设置环境变量: export NPEDI_TOKEN=你的Token")
-        return False
+        sys.exit(1)
 
     results_to_save = []
 
