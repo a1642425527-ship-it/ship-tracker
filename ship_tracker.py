@@ -759,6 +759,14 @@ def _try_push_via_api(new_token):
 # 执行器
 # ==========================================
 
+def _is_quiet_hours():
+    """判断当前是否在静默时段（CST 23:00 - 07:00）"""
+    if "GITHUB_ACTIONS" not in os.environ:
+        return False  # 本地运行不限制
+    cst_hour = (datetime.utcnow() + timedelta(hours=8)).hour
+    return cst_hour >= 23 or cst_hour < 7
+
+
 def run_once(force_push=False):
     """单次查询（GitHub Actions + 本地单次运行）
        force_push=True 时忽略变化检测，强制推钉钉"""
@@ -820,9 +828,12 @@ def run_once(force_push=False):
         save_to_excel(results_to_save)
 
         if changed or force_push:
-            send_dingtalk_msg(results_to_save)
-            print(f"\n📣 已推送钉钉{'（强制推送）' if force_push else ''}")
-            print(f"   {reason}")
+            if _is_quiet_hours() and not force_push:
+                print(f"\n🌙 静默时段（CST 23:00-07:00），跳过钉钉推送")
+            else:
+                send_dingtalk_msg(results_to_save)
+                print(f"\n📣 已推送钉钉{'（强制推送）' if force_push else ''}")
+                print(f"   {reason}")
         else:
             print(f"\n⏭️ 数据无变化，跳过钉钉推送")
 
