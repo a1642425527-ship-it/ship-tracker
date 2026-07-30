@@ -26,11 +26,13 @@ jobs:
         run: |
           pip install requests openpyxl
 
-      - name: 💾 恢复上次船态（用于判断数据是否变化）
+      - name: 💾 恢复运行状态
         id: cache-state
         uses: actions/cache@v4
         with:
-          path: .last_vessel_state.json
+          path: |
+            .last_vessel_state.json
+            .disabled
           key: vessel-state-${{ github.workflow }}
 
       - name: 🚢 执行船舶查询

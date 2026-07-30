@@ -39,13 +39,88 @@ DINGTALK_WEBHOOK = "https://oapi.dingtalk.com/robot/send?access_token=db0a14f83c
 TOKEN_FILE = "token.txt"
 EXCEL_FILE = "船舶动态跟踪.xlsx"
 STATE_FILE = ".last_vessel_state.json"  # 上次运行数据缓存（用于判断数据是否变化）
+VESSEL_FILE = ".vessels.json"           # 船舶列表文件
+DISABLED_FILE = ".disabled"             # 关闭查询的标记文件
 UPDATE_INTERVAL_HOURS = 2  # 自动更新间隔（小时）
 
-# 你追踪的船舶列表（可自行增删）
-VESSELS_TO_QUERY = [
+# ==========================================
+# 船舶列表管理（支持命令行修改）
+# ==========================================
+
+_DEFAULT_VESSELS = [
     {"name": "YM TOPMOST", "voyage": "025W"},
     {"name": "MAREN MAERSK", "voyage": "630W"},
 ]
+
+
+def load_vessels():
+    """从文件加载船舶列表，不存在则用默认值"""
+    if os.path.exists(VESSEL_FILE):
+        try:
+            with open(VESSEL_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # 首次运行，创建默认文件
+    save_vessels(_DEFAULT_VESSELS)
+    return list(_DEFAULT_VESSELS)
+
+
+def save_vessels(vessels):
+    """保存船舶列表到文件"""
+    with open(VESSEL_FILE, "w", encoding="utf-8") as f:
+        json.dump(vessels, f, ensure_ascii=False, indent=2)
+    print(f"✅ 船舶列表已保存至 {VESSEL_FILE}")
+
+
+def add_vessel(name, voyage):
+    """添加一艘船"""
+    vessels = load_vessels()
+    # 去重
+    vessels = [v for v in vessels if not (v["name"] == name and v["voyage"] == voyage)]
+    vessels.append({"name": name, "voyage": voyage})
+    save_vessels(vessels)
+    print(f"📌 已添加: {name} 航次 {voyage}")
+    _git_commit_push(f"add vessel: {name} {voyage}")
+
+
+def remove_vessel(name):
+    """按船名移除船舶"""
+    vessels = load_vessels()
+    before = len(vessels)
+    vessels = [v for v in vessels if v["name"] != name]
+    removed = before - len(vessels)
+    if removed:
+        save_vessels(vessels)
+        print(f"🗑️ 已移除 {removed} 艘名为 [{name}] 的船")
+        _git_commit_push(f"remove vessel: {name}")
+    else:
+        print(f"⚠️ 未找到名为 [{name}] 的船")
+
+
+def list_vessels():
+    """列出所有船舶"""
+    vessels = load_vessels()
+    if not vessels:
+        print("📭 船舶列表为空")
+        return
+    print(f"📋 当前追踪 {len(vessels)} 艘船:")
+    for i, v in enumerate(vessels, 1):
+        print(f"  {i}. {v['name']} 航次 {v['voyage']}")
+
+
+def _git_commit_push(msg):
+    """自动提交并推送 git 变更"""
+    try:
+        subprocess.run(["git", "add", VESSEL_FILE], capture_output=True, timeout=10)
+        subprocess.run(["git", "commit", "-m", msg], capture_output=True, timeout=10)
+        result = subprocess.run(["git", "push"], capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            print(f"🚀 已推送至 GitHub")
+        else:
+            print(f"   (本地已保存，推送失败: {result.stderr.strip()[:60]})")
+    except Exception as e:
+        print(f"   (本地已保存，git 操作跳过: {e})")
 
 # ==========================================
 # Token 管理
@@ -334,7 +409,7 @@ def save_current_state(data_list):
 
 
 def has_data_changed(data_list):
-    """与上次数据对比，返回是否有变化和一个变更摘要"""
+    """与上次数据对比 + 超期检测，返回是否有变化和一个变更摘要"""
     previous = load_previous_state()
 
     if not previous:
@@ -360,6 +435,33 @@ def has_data_changed(data_list):
                 }
                 name = field_names.get(field, field)
                 changes.append(f"🔁 {item['cn_name']} {name}: {old_val} → {new_val}")
+
+    # ⏰ 超期检测：ETA已过但未靠泊 / ETD已过但未离泊
+    for item in data_list:
+        now = datetime.now()
+        name = item['cn_name']
+
+        # ETA 已过但未靠泊
+        eta_str = item.get("eta", "")
+        ata_str = item.get("ata", "")
+        if eta_str and eta_str != "暂无" and ("尚未" in ata_str or not ata_str or ata_str in ("暂无", "-", "")):
+            try:
+                eta_time = datetime.strptime(eta_str, "%Y-%m-%d %H:%M:%S")
+                if eta_time < now:
+                    changes.append(f"⏰ {name} ETA {eta_str} 已过，仍未靠泊！")
+            except:
+                pass
+
+        # ETD 已过但未离泊
+        etd_str = item.get("etd", "")
+        atd_str = item.get("atd", "")
+        if etd_str and etd_str != "暂无" and ("尚未" in atd_str or not atd_str or atd_str in ("暂无", "-", "")):
+            try:
+                etd_time = datetime.strptime(etd_str, "%Y-%m-%d %H:%M:%S")
+                if etd_time < now:
+                    changes.append(f"⏰ {name} ETD {etd_str} 已过，仍未离泊！")
+            except:
+                pass
 
     if changes:
         return True, "数据变更:\n" + "\n".join(changes)
@@ -541,8 +643,9 @@ def _try_push_via_api(new_token):
 # 执行器
 # ==========================================
 
-def run_once():
-    """单次查询（GitHub Actions + 本地单次运行）"""
+def run_once(force_push=False):
+    """单次查询（GitHub Actions + 本地单次运行）
+       force_push=True 时忽略变化检测，强制推钉钉"""
     print(f"\n🚀 开始查询船舶动态... ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
 
     api_token = load_token()
@@ -561,8 +664,9 @@ def run_once():
         sys.exit(1)
 
     results_to_save = []
+    vessels = load_vessels()
 
-    for index, vessel in enumerate(VESSELS_TO_QUERY):
+    for index, vessel in enumerate(vessels):
         target_name = vessel.get("name")
         target_voyage = vessel.get("voyage")
 
@@ -588,7 +692,7 @@ def run_once():
             else:
                 break
 
-        if index < len(VESSELS_TO_QUERY) - 1:
+        if index < len(vessels) - 1:
             time.sleep(round(random.uniform(1.5, 3.5), 2))
 
     if results_to_save:
@@ -596,9 +700,9 @@ def run_once():
         save_current_state(results_to_save)
         save_to_excel(results_to_save)
 
-        if changed:
+        if changed or force_push:
             send_dingtalk_msg(results_to_save)
-            print(f"\n📣 数据有变化，已推送钉钉")
+            print(f"\n📣 已推送钉钉{'（强制推送）' if force_push else ''}")
             print(f"   {reason}")
         else:
             print(f"\n⏭️ 数据无变化，跳过钉钉推送")
@@ -651,16 +755,65 @@ def run_daemon():
 
 if __name__ == "__main__":
     if "--grab-token" in sys.argv:
-        # 本地抓取 Token 模式
         new_token = grab_token_via_browser()
         if new_token:
             save_token(new_token)
             print(f"\n🔑 新 Token: {new_token[:20]}...{new_token[-10:]}")
-            # 尝试推送到 GitHub Secrets
             push_token_to_github(new_token)
+
     elif "--daemon" in sys.argv:
-        # 本地守护进程模式
         run_daemon()
+
+    elif "--push" in sys.argv:
+        run_once(force_push=True)
+
+    elif "--add" in sys.argv:
+        if len(sys.argv) >= 4:
+            add_vessel(sys.argv[2], sys.argv[3])
+        else:
+            print("⚠️ 用法: python ship_tracker.py --add \"船名\" \"航次\"")
+
+    elif "--remove" in sys.argv:
+        if len(sys.argv) >= 3:
+            remove_vessel(sys.argv[2])
+        else:
+            print("⚠️ 用法: python ship_tracker.py --remove \"船名\"")
+
+    elif "--list" in sys.argv:
+        list_vessels()
+
+    elif "--enable" in sys.argv:
+        if os.path.exists(DISABLED_FILE):
+            os.remove(DISABLED_FILE)
+            print("✅ 查询已启用")
+            _git_commit_push("enable query")
+        else:
+            print("✅ 查询已经是启用状态")
+
+    elif "--disable" in sys.argv:
+        if not os.path.exists(DISABLED_FILE):
+            open(DISABLED_FILE, "w").close()
+            print("⏸️ 查询已禁用（GitHub Action 将跳过查询）")
+            _git_commit_push("disable query")
+        else:
+            print("⏸️ 查询已经是禁用状态")
+
+    elif "--status" in sys.argv:
+        print(f"📋 船舶跟踪系统状态")
+        print(f"{'='*40}")
+        print(f"⏰ 查询间隔: 每 {UPDATE_INTERVAL_HOURS} 小时")
+        print(f"{'🔴 已禁用' if os.path.exists(DISABLED_FILE) else '🟢 运行中'}")
+        list_vessels()
+        token = load_token()
+        print(f"🔑 Token: {'✅ 已存在' if token else '❌ 未配置'}")
+        if os.path.exists(STATE_FILE):
+            print(f"💾 上次状态缓存: 存在")
+        else:
+            print(f"💾 上次状态缓存: 无")
+
     else:
-        # 默认：单次查询模式（GitHub Actions 使用此模式）
+        # 默认：单次查询模式（GitHub Actions）
+        if os.path.exists(DISABLED_FILE):
+            print("⏸️ 查询已禁用（.disabled 文件存在），跳过本次查询。")
+            sys.exit(0)
         run_once()

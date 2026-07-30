@@ -2,8 +2,9 @@
 token.txt
 GITHUB_PAT.txt
 
-# 船态缓存（GitHub Actions cache 管理，不提交到仓库）
+# 船态缓存及禁用标记（GitHub Actions cache 管理）
 .last_vessel_state.json
+.disabled
 
 # Python 虚拟环境
 .venv/
