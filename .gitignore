@@ -9,6 +9,9 @@ GITHUB_PAT.txt
 # 本地 SMTP 密码
 .smtp.txt
 
+# 本地 Webhook 配置
+.webhook.txt
+
 # Python 虚拟环境
 .venv/
 venv/

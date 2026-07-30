@@ -29,8 +29,9 @@ API_URL = "https://www.npedi.com/onesite-api/vessel/plan/selectContainerDynamicP
 # 【网页地址】浏览器抓取 Token 时打开的页面
 TOKEN_PAGE_URL = "https://www.npedi.com/onesite/vessel/plan"
 
-# 【钉钉 Webhook】保持不变即可（消息会发到你的钉钉机器人）
+# 【钉钉 Webhook】（也可通过命令行 --webhook 修改）
 DINGTALK_WEBHOOK = "https://oapi.dingtalk.com/robot/send?access_token=e8c18819840309c42f277738946eaf4eb6924bc123ed37f7cff2f9b6ad54620e"
+WEBHOOK_FILE = ".webhook.txt"
 
 # ==========================================
 # ⚙️ 配置区
@@ -187,6 +188,27 @@ def _git_commit_push(msg):
                 pass
 
     print("   ⚠️ 本地已保存，自动推送失败。手动执行: git push")
+
+def get_webhook():
+    """获取钉钉 Webhook URL（优先从 .webhook.txt 读取）"""
+    if os.path.exists(WEBHOOK_FILE):
+        try:
+            with open(WEBHOOK_FILE, "r") as f:
+                url = f.read().strip()
+                if url:
+                    return url
+        except:
+            pass
+    return DINGTALK_WEBHOOK
+
+
+def set_webhook(url):
+    """设置钉钉 Webhook URL 并保存到文件"""
+    with open(WEBHOOK_FILE, "w") as f:
+        f.write(url.strip())
+    print(f"✅ 钉钉 Webhook 已更新")
+    _git_commit_push("update webhook")
+
 
 # ==========================================
 # Token 管理
@@ -376,7 +398,7 @@ def send_dingtalk_msg(data_list):
     }
 
     try:
-        response = requests.post(DINGTALK_WEBHOOK, json=payload)
+        response = requests.post(get_webhook(), json=payload)
         if response.status_code == 200:
             print("📣 钉钉消息推送成功！")
         else:
@@ -930,6 +952,13 @@ if __name__ == "__main__":
             _git_commit_push("disable query")
         else:
             print("⏸️ 查询已经是禁用状态")
+
+    elif "--webhook" in sys.argv:
+        if len(sys.argv) >= 3:
+            set_webhook(sys.argv[2])
+        else:
+            print(f"📡 当前 Webhook: {get_webhook()[:50]}...")
+            print("⚠️ 用法: python ship_tracker.py --webhook \"新URL\"")
 
     elif "--status" in sys.argv:
         print(f"📋 船舶跟踪系统状态")
