@@ -7,6 +7,15 @@ on:
 
   # 支持手动触发（在 GitHub Actions 页面点 "Run workflow"）
   workflow_dispatch:
+    inputs:
+      force_push:
+        description: '强制推送钉钉（忽略变化检测）'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   track:
@@ -46,6 +55,8 @@ jobs:
           GITHUB_WORKFLOW: ${{ github.workflow }}
           # QQ 邮箱 SMTP（用于 Token 过期告警）
           QQ_SMTP_PASS: ${{ secrets.QQ_SMTP_PASS }}
+          # 手动触发时强制推送
+          FORCE_PUSH: ${{ github.event.inputs.force_push || 'false' }}
 
       - name: 📎 上传 Excel 报表（Artifact，可下载查看）
         if: always()

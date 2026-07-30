@@ -690,6 +690,9 @@ def _try_push_via_api(new_token):
 def run_once(force_push=False):
     """单次查询（GitHub Actions + 本地单次运行）
        force_push=True 时忽略变化检测，强制推钉钉"""
+    # 优先从环境变量读取强制推送标志（GitHub Actions 手动触发时传入）
+    if os.environ.get("FORCE_PUSH") == "true":
+        force_push = True
     print(f"\n🚀 开始查询船舶动态... ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
 
     api_token = load_token()
@@ -809,7 +812,35 @@ if __name__ == "__main__":
         run_daemon()
 
     elif "--push" in sys.argv:
-        run_once(force_push=True)
+        print("🚀 正在触发 GitHub Actions 远程查询...")
+        if os.path.exists(GITHUB_PAT_FILE):
+            with open(GITHUB_PAT_FILE, "r") as f:
+                pat = f.read().strip()
+            if pat:
+                try:
+                    resp = requests.post(
+                        f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/ship-track.yml/dispatches",
+                        headers={
+                            "Authorization": f"Bearer {pat}",
+                            "Accept": "application/vnd.github.v3+json"
+                        },
+                        json={"ref": "main", "inputs": {"force_push": "true"}},
+                        timeout=15
+                    )
+                    if resp.status_code == 204:
+                        print("✅ 已触发 GitHub Action（强制推送模式），稍后查看钉钉")
+                    else:
+                        print(f"⚠️ 触发失败 (HTTP {resp.status_code})，尝试本地运行...")
+                        run_once(force_push=True)
+                except Exception as e:
+                    print(f"⚠️ 触发远程失败: {e}，尝试本地运行...")
+                    run_once(force_push=True)
+            else:
+                print("⚠️ GITHUB_PAT.txt 为空，尝试本地运行...")
+                run_once(force_push=True)
+        else:
+            print("⚠️ 未找到 GITHUB_PAT.txt，尝试本地运行...")
+            run_once(force_push=True)
 
     elif "--add" in sys.argv:
         if len(sys.argv) >= 4:
