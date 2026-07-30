@@ -356,7 +356,12 @@ def send_dingtalk_msg(data_list):
         name_line += f" | **🔖 航次**: {item['voyage']} | **🏗️ 码头**: {item['terminal']}\n\n"
         content += name_line
         content += f"**⏳ 计划靠泊 (ETA)**: <font color=#008000>{item['eta']}</font> | **计划离泊 (ETD)**: {item['etd']}\n\n"
-        content += f"**⚓ 实际靠泊 (ATA)**: {item['ata']} | **实际离泊 (ATD)**: {item['atd']}\n\n"
+
+        # 状态变化点：有实际时间时绿色加粗标注
+        def _green_bold(v):
+            return f"<font color=#008000><b>{v}</b></font>" if v and "尚未" not in str(v) and v not in ("暂无", "-", "") else v
+
+        content += f"**⚓ 实际靠泊 (ATA)**: {_green_bold(item['ata'])} | **实际离泊 (ATD)**: {_green_bold(item['atd'])}\n\n"
         content += f"**📦 进箱时间**: {item['ctn_start']} 至 {item['ctn_end']}\n\n"
         content += f"**🛑 码头截单**: <font color=#FF0000>{item['port_close']}</font> | **海关截关**: {item['custom_close']}\n\n"
         content += f"**🗺️ 航线轨迹**: 上一港 [{item['last_port']}] ➔ 下一港 [{item['next_port']}]\n\n"
