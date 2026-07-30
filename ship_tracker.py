@@ -73,15 +73,36 @@ def save_vessels(vessels):
     print(f"✅ 船舶列表已保存至 {VESSEL_FILE}")
 
 
-def add_vessel(name, voyage):
-    """添加一艘船"""
+def add_vessel(name, voyage, remark=""):
+    """添加一艘船（支持备注）"""
     vessels = load_vessels()
-    # 去重
     vessels = [v for v in vessels if not (v["name"] == name and v["voyage"] == voyage)]
-    vessels.append({"name": name, "voyage": voyage})
+    vessel = {"name": name, "voyage": voyage}
+    if remark:
+        vessel["remark"] = remark
+    vessels.append(vessel)
     save_vessels(vessels)
-    print(f"📌 已添加: {name} 航次 {voyage}")
+    print(f"📌 已添加: {name} 航次 {voyage}" + (f" 备注: {remark}" if remark else ""))
     _git_commit_push(f"add vessel: {name} {voyage}")
+
+
+def set_remark(name, remark):
+    """修改船舶备注"""
+    vessels = load_vessels()
+    count = 0
+    for v in vessels:
+        if v["name"] == name:
+            if remark:
+                v["remark"] = remark
+            else:
+                v.pop("remark", None)
+            count += 1
+    if count:
+        save_vessels(vessels)
+        print(f"📝 已更新 [{name}] 的备注: {remark}")
+        _git_commit_push(f"remark: {name} - {remark}")
+    else:
+        print(f"⚠️ 未找到名为 [{name}] 的船")
 
 
 def remove_vessel(name):
@@ -106,7 +127,8 @@ def list_vessels():
         return
     print(f"📋 当前追踪 {len(vessels)} 艘船:")
     for i, v in enumerate(vessels, 1):
-        print(f"  {i}. {v['name']} 航次 {v['voyage']}")
+        remark = v.get("remark", "")
+        print(f"  {i}. {v['name']} 航次 {v['voyage']}" + (f"  📝 {remark}" if remark else ""))
 
 
 def _git_commit_push(msg):
@@ -310,15 +332,29 @@ def fetch_and_parse(vessel_name, voyage, current_token):
 # ==========================================
 
 def send_dingtalk_msg(data_list):
-    """将数据排版为 Markdown 并推送到钉钉"""
+    """将数据排版为 Markdown 并推送到钉钉（含备注）"""
     if not data_list:
         return
+
+    # 加载船舶列表以获取备注
+    vessels = load_vessels()
+    remark_map = {}
+    for v in vessels:
+        r = v.get("remark", "")
+        if r:
+            remark_map[f"{v['name']}_{v['voyage']}"] = r
 
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     content = f"### 🚢 船舶排期自动更新\n*{current_time}*\n\n---\n\n"
 
     for item in data_list:
-        content += f"**📌 船名**: {item['cn_name']} ({item['en_name']}) | **🔖 航次**: {item['voyage']} | **🏗️ 码头**: {item['terminal']}\n\n"
+        key = f"{item['en_name']}_{item['voyage']}"
+        remark = remark_map.get(key, "")
+        name_line = f"**📌 船名**: {item['cn_name']} ({item['en_name']})"
+        if remark:
+            name_line += f" | 📝 {remark}"
+        name_line += f" | **🔖 航次**: {item['voyage']} | **🏗️ 码头**: {item['terminal']}\n\n"
+        content += name_line
         content += f"**⏳ 计划靠泊 (ETA)**: <font color=#008000>{item['eta']}</font> | **计划离泊 (ETD)**: {item['etd']}\n\n"
         content += f"**⚓ 实际靠泊 (ATA)**: {item['ata']} | **实际离泊 (ATD)**: {item['atd']}\n\n"
         content += f"**📦 进箱时间**: {item['ctn_start']} 至 {item['ctn_end']}\n\n"
@@ -843,10 +879,18 @@ if __name__ == "__main__":
             run_once(force_push=True)
 
     elif "--add" in sys.argv:
-        if len(sys.argv) >= 4:
+        if len(sys.argv) >= 5:
+            add_vessel(sys.argv[2], sys.argv[3], sys.argv[4])
+        elif len(sys.argv) >= 4:
             add_vessel(sys.argv[2], sys.argv[3])
         else:
-            print("⚠️ 用法: python ship_tracker.py --add \"船名\" \"航次\"")
+            print("⚠️ 用法: python ship_tracker.py --add \"船名\" \"航次\" [\"备注\"]")
+
+    elif "--remark" in sys.argv:
+        if len(sys.argv) >= 4:
+            set_remark(sys.argv[2], sys.argv[3])
+        else:
+            print("⚠️ 用法: python ship_tracker.py --remark \"船名\" \"备注内容\"")
 
     elif "--remove" in sys.argv:
         if len(sys.argv) >= 3:
