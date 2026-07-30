@@ -110,17 +110,61 @@ def list_vessels():
 
 
 def _git_commit_push(msg):
-    """自动提交并推送 git 变更"""
+    """自动提交并推送 git 变更（优先 gh CLI，其次 GitHub API + PAT）"""
+    committed = False
     try:
         subprocess.run(["git", "add", VESSEL_FILE], capture_output=True, timeout=10)
-        subprocess.run(["git", "commit", "-m", msg], capture_output=True, timeout=10)
+        r = subprocess.run(["git", "commit", "-m", msg], capture_output=True, text=True, timeout=10)
+        if r.returncode == 0:
+            committed = True
+    except:
+        pass
+
+    if not committed:
+        print("   (无变更需提交)")
+        return
+
+    # 尝试 gh CLI 推送
+    try:
+        subprocess.run(["gh", "--version"], capture_output=True, timeout=5)
         result = subprocess.run(["git", "push"], capture_output=True, text=True, timeout=30)
         if result.returncode == 0:
-            print(f"🚀 已推送至 GitHub")
-        else:
-            print(f"   (本地已保存，推送失败: {result.stderr.strip()[:60]})")
-    except Exception as e:
-        print(f"   (本地已保存，git 操作跳过: {e})")
+            print("🚀 已推送至 GitHub")
+            return
+    except:
+        pass
+
+    # 尝试 GitHub API + PAT 推送
+    if os.path.exists(GITHUB_PAT_FILE):
+        with open(GITHUB_PAT_FILE, "r") as f:
+            pat = f.read().strip()
+        if pat:
+            try:
+                import base64
+                with open(VESSEL_FILE, "rb") as f:
+                    content_b64 = base64.b64encode(f.read()).decode()
+                # 获取当前文件 SHA
+                headers = {"Authorization": f"Bearer {pat}", "Accept": "application/vnd.github.v3+json"}
+                resp = requests.get(
+                    f"https://api.github.com/repos/{GITHUB_REPO}/contents/{VESSEL_FILE}",
+                    headers=headers, timeout=10
+                )
+                sha = resp.json().get("sha") if resp.status_code == 200 else None
+                # 更新文件
+                data = {"message": msg, "content": content_b64}
+                if sha:
+                    data["sha"] = sha
+                resp = requests.put(
+                    f"https://api.github.com/repos/{GITHUB_REPO}/contents/{VESSEL_FILE}",
+                    headers=headers, json=data, timeout=15
+                )
+                if resp.status_code in (200, 201):
+                    print("🚀 已通过 API 推送至 GitHub")
+                    return
+            except:
+                pass
+
+    print("   ⚠️ 本地已保存，自动推送失败。手动执行: git push")
 
 # ==========================================
 # Token 管理
