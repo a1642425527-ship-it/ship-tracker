@@ -30,7 +30,7 @@ API_URL = "https://www.npedi.com/onesite-api/vessel/plan/selectContainerDynamicP
 TOKEN_PAGE_URL = "https://www.npedi.com/onesite/vessel/plan"
 
 # 【钉钉 Webhook】保持不变即可（消息会发到你的钉钉机器人）
-DINGTALK_WEBHOOK = "https://oapi.dingtalk.com/robot/send?access_token=db0a14f83c676fbf67399ab0e633dd2c30af9a85593a2b2c27bc7775d4891124"
+DINGTALK_WEBHOOK = "https://oapi.dingtalk.com/robot/send?access_token=e8c18819840309c42f277738946eaf4eb6924bc123ed37f7cff2f9b6ad54620e"
 
 # ==========================================
 # ⚙️ 配置区
