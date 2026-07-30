@@ -439,7 +439,16 @@ def send_email_alert(subject, body):
     to_email = "1642425527@qq.com"
 
     if not smtp_pass:
-        print("⚠️ 未设置 QQ_SMTP_PASS 环境变量，跳过邮件告警。")
+        # 本地运行：尝试从 .smtp.txt 读取
+        smtp_file = ".smtp.txt"
+        if os.path.exists(smtp_file):
+            with open(smtp_file, "r") as f:
+                lines = [l.strip() for l in f.readlines() if l.strip()]
+                if len(lines) >= 2:
+                    smtp_user, smtp_pass = lines[0], lines[1]
+
+    if not smtp_pass:
+        print("⚠️ 未设置 QQ_SMTP_PASS 环境变量/找不到 .smtp.txt，跳过邮件告警。")
         return
 
     # 去重检查
