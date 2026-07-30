@@ -38,6 +38,7 @@ DINGTALK_WEBHOOK = "https://oapi.dingtalk.com/robot/send?access_token=db0a14f83c
 
 TOKEN_FILE = "token.txt"
 EXCEL_FILE = "船舶动态跟踪.xlsx"
+STATE_FILE = ".last_vessel_state.json"  # 上次运行数据缓存（用于判断数据是否变化）
 UPDATE_INTERVAL_HOURS = 2  # 自动更新间隔（小时）
 
 # 你追踪的船舶列表（可自行增删）
@@ -302,6 +303,69 @@ def send_email_alert(subject, body):
         print(f"⚠️ 邮件发送失败: {e}")
 
 
+# ==========================================
+# 数据变化检测（避免重复推送）
+# ==========================================
+
+_IMPORTANT_FIELDS = ["eta", "etd", "ata", "atd", "ctn_start", "ctn_end",
+                     "port_close", "custom_close", "terminal"]
+
+
+def load_previous_state():
+    """加载上次运行的船舶状态"""
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_current_state(data_list):
+    """保存本次运行的船舶状态"""
+    state = {}
+    for item in data_list:
+        key = f"{item['en_name']}_{item['voyage']}"
+        state[key] = {f: item.get(f, "") for f in _IMPORTANT_FIELDS}
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+    print(f"💾 已保存当前船态至 {STATE_FILE}")
+
+
+def has_data_changed(data_list):
+    """与上次数据对比，返回是否有变化和一个变更摘要"""
+    previous = load_previous_state()
+
+    if not previous:
+        return True, "🆕 首次运行，推送初始数据"
+
+    changes = []
+    for item in data_list:
+        key = f"{item['en_name']}_{item['voyage']}"
+        old = previous.get(key)
+        if not old:
+            changes.append(f"📌 {item['cn_name']} ({item['en_name']}) 新出现")
+            continue
+        for field in _IMPORTANT_FIELDS:
+            new_val = item.get(field, "")
+            old_val = old.get(field, "")
+            if new_val != old_val:
+                field_names = {
+                    "eta": "计划靠泊(ETA)", "etd": "计划离泊(ETD)",
+                    "ata": "实际靠泊(ATA)", "atd": "实际离泊(ATD)",
+                    "ctn_start": "进箱开始", "ctn_end": "进箱结束",
+                    "port_close": "码头截单", "custom_close": "海关截关",
+                    "terminal": "码头"
+                }
+                name = field_names.get(field, field)
+                changes.append(f"🔁 {item['cn_name']} {name}: {old_val} → {new_val}")
+
+    if changes:
+        return True, "数据变更:\n" + "\n".join(changes)
+    return False, "数据无变化"
+
+
 def save_to_excel(data_list):
     """将数据写入 Excel 并进行简单排版"""
     if not data_list:
@@ -528,9 +592,18 @@ def run_once():
             time.sleep(round(random.uniform(1.5, 3.5), 2))
 
     if results_to_save:
+        changed, reason = has_data_changed(results_to_save)
+        save_current_state(results_to_save)
         save_to_excel(results_to_save)
-        send_dingtalk_msg(results_to_save)
-        print(f"\n✅ 本轮查询完成！数据已保存并推送至钉钉。")
+
+        if changed:
+            send_dingtalk_msg(results_to_save)
+            print(f"\n📣 数据有变化，已推送钉钉")
+            print(f"   {reason}")
+        else:
+            print(f"\n⏭️ 数据无变化，跳过钉钉推送")
+
+        print(f"✅ 本轮查询完成！")
         return True
 
     print(f"\n⚠️ 未查询到任何数据。")
