@@ -350,9 +350,9 @@ def send_dingtalk_msg(data_list):
     for item in data_list:
         key = f"{item['en_name']}_{item['voyage']}"
         remark = remark_map.get(key, "")
-        name_line = f"**📌 船名**: {item['cn_name']} ({item['en_name']})"
         if remark:
-            name_line += f" | 📝 {remark}"
+            content += f"# 📝 {remark}\n\n"
+        name_line = f"**📌 船名**: {item['cn_name']} ({item['en_name']})"
         name_line += f" | **🔖 航次**: {item['voyage']} | **🏗️ 码头**: {item['terminal']}\n\n"
         content += name_line
         content += f"**⏳ 计划靠泊 (ETA)**: <font color=#008000>{item['eta']}</font> | **计划离泊 (ETD)**: {item['etd']}\n\n"
