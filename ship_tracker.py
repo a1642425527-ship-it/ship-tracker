@@ -31,17 +31,26 @@ TOKEN_PAGE_URL = "https://www.npedi.com/onesite/vessel/plan"
 
 # 【钉钉 Webhook】（也可通过命令行 --webhook 修改）
 DINGTALK_WEBHOOK = "https://oapi.dingtalk.com/robot/send?access_token=53b1f6ace97047e1ffeb5f86a5a84fd8de1bf60beeea4a3ec410435c3b988193"
-WEBHOOK_FILE = ".webhook.txt"
 
 # ==========================================
 # ⚙️ 配置区
 # ==========================================
+# 路径处理：所有文件都基于脚本所在目录，保证在任何位置运行都能找到
+# ==========================================
 
-TOKEN_FILE = "token.txt"
-EXCEL_FILE = "船舶动态跟踪.xlsx"
-STATE_FILE = ".last_vessel_state.json"  # 上次运行数据缓存（用于判断数据是否变化）
-VESSEL_FILE = ".vessels.json"           # 船舶列表文件
-DISABLED_FILE = ".disabled"             # 关闭查询的标记文件
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _path(name):
+    return os.path.join(SCRIPT_DIR, name)
+
+
+TOKEN_FILE = _path("token.txt")
+EXCEL_FILE = _path("船舶动态跟踪.xlsx")
+STATE_FILE = _path(".last_vessel_state.json")  # 上次运行数据缓存（用于判断数据是否变化）
+VESSEL_FILE = _path(".vessels.json")           # 船舶列表文件
+DISABLED_FILE = _path(".disabled")             # 关闭查询的标记文件
+WEBHOOK_FILE = _path(".webhook.txt")           # 钉钉 Webhook 覆盖文件
 UPDATE_INTERVAL_HOURS = 2  # 自动更新间隔（小时）
 
 # ==========================================
@@ -462,7 +471,7 @@ def send_email_alert(subject, body):
 
     if not smtp_pass:
         # 本地运行：尝试从 .smtp.txt 读取
-        smtp_file = ".smtp.txt"
+        smtp_file = _path(".smtp.txt")
         if os.path.exists(smtp_file):
             with open(smtp_file, "r") as f:
                 lines = [l.strip() for l in f.readlines() if l.strip()]
@@ -643,7 +652,7 @@ def save_to_excel(data_list):
 # ==========================================
 
 GITHUB_REPO = "a1642425527-ship-it/ship-tracker"
-GITHUB_PAT_FILE = "GITHUB_PAT.txt"
+GITHUB_PAT_FILE = _path("GITHUB_PAT.txt")
 
 
 def push_token_to_github(new_token):
