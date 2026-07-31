@@ -1,0 +1,7 @@
+name = "qq-ship-bot"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# 通过 wrangler secret put 设置：
+#   GITHUB_PAT, QQ_APPID, QQ_SECRET
+# 可选: GITHUB_REPO

@@ -5,7 +5,7 @@ on:
   schedule:
     - cron: '0 */2 * * *'
 
-  # 支持手动触发（在 GitHub Actions 页面点 "Run workflow"）
+  # 手动触发 / QQ 机器人触发
   workflow_dispatch:
     inputs:
       force_push:
@@ -16,6 +16,22 @@ on:
         options:
           - 'false'
           - 'true'
+      qq_command:
+        description: 'QQ 命令 (JSON数组)'
+        required: false
+        default: ''
+      qq_openid:
+        description: 'QQ 用户 openid'
+        required: false
+        default: ''
+      qq_msg_type:
+        description: 'c2c 或 group'
+        required: false
+        default: 'c2c'
+      qq_group_openid:
+        description: '群 openid'
+        required: false
+        default: ''
 
 jobs:
   track:
@@ -44,11 +60,19 @@ jobs:
             .disabled
           key: vessel-state-${{ github.workflow }}
 
-      - name: 🚢 执行船舶查询
-        run: python ship_tracker.py
+      # QQ 命令模式：执行用户指令并回复 QQ
+      - name: 🤖 执行 QQ 命令
+        if: ${{ github.event.inputs.qq_command != '' }}
+        run: python run_qq_command.py
         env:
           NPEDI_TOKEN: ${{ secrets.NPEDI_TOKEN }}
-          # GitHub 运行上下文（用于告警去重）
+          QQ_CMD: ${{ github.event.inputs.qq_command }}
+          QQ_OPENID: ${{ github.event.inputs.qq_openid }}
+          QQ_MSG_TYPE: ${{ github.event.inputs.qq_msg_type }}
+          QQ_GROUP_OPENID: ${{ github.event.inputs.qq_group_openid }}
+          QQ_APPID: ${{ secrets.QQ_APPID }}
+          QQ_SECRET: ${{ secrets.QQ_SECRET }}
+          # GitHub 上下文（用于告警去重）
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
@@ -56,6 +80,19 @@ jobs:
           # QQ 邮箱 SMTP（用于 Token 过期告警）
           QQ_SMTP_PASS: ${{ secrets.QQ_SMTP_PASS }}
           # 手动触发时强制推送
+          FORCE_PUSH: ${{ github.event.inputs.force_push || 'false' }}
+
+      # 定时/手动模式：正常查询
+      - name: 🚢 执行船舶查询
+        if: ${{ github.event.inputs.qq_command == '' }}
+        run: python ship_tracker.py
+        env:
+          NPEDI_TOKEN: ${{ secrets.NPEDI_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_WORKFLOW: ${{ github.workflow }}
+          QQ_SMTP_PASS: ${{ secrets.QQ_SMTP_PASS }}
           FORCE_PUSH: ${{ github.event.inputs.force_push || 'false' }}
 
       - name: 📎 上传 Excel 报表（Artifact，可下载查看）
