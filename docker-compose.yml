@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+  qq-ship-bot:
+    build: .
+    container_name: qq-ship-bot
+    restart: always
+    environment:
+      - TZ=Asia/Shanghai
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
