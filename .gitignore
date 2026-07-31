@@ -12,6 +12,9 @@ GITHUB_PAT.txt
 # 本地 Webhook 配置
 .webhook.txt
 
+# botpy 日志
+botpy.log
+
 # Python 虚拟环境
 .venv/
 venv/
