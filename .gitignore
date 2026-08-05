@@ -33,3 +33,11 @@ ms-playwright/
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 运行日志/PID/缓存
+*.log
+*.pid
+.qq_bot.pid
+qq_bot.log
+botpy.log*
+.wrangler/
