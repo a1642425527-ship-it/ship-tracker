@@ -110,10 +110,27 @@ export default {
     // ========== 回调地址验证 (GET) ==========
     if (request.method === "GET") {
       const ticket = url.searchParams.get("ticket") || "";
-      // 部分平台要求返回 ticket 原值
-      return new Response(JSON.stringify({ ticket }), {
-        headers: { "Content-Type": "application/json" }
-      });
+      const msg = url.searchParams.get("msg") || "";
+      const signature = url.searchParams.get("signature") || "";
+      const timestamp = url.searchParams.get("timestamp") || "";
+      const nonce = url.searchParams.get("nonce") || "";
+      const echostr = url.searchParams.get("echostr") || "";
+
+      // 兼容多种验证协议：
+      // 1. QQ 官方: 返回 {"ticket": "ticket值"}
+      if (ticket) {
+        return new Response(JSON.stringify({ ticket }), {
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      // 2. 微信/企业微信风格: 返回 echostr
+      if (echostr) {
+        return new Response(echostr, {
+          headers: { "Content-Type": "text/plain" }
+        });
+      }
+      // 3. 默认返回 OK
+      return new Response("OK", { headers: { "Content-Type": "text/plain" } });
     }
 
     // ========== 事件推送 (POST) ==========

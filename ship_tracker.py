@@ -175,10 +175,10 @@ def _git_commit_push(msg):
                 import base64
                 with open(VESSEL_FILE, "rb") as f:
                     content_b64 = base64.b64encode(f.read()).decode()
-                # 获取当前文件 SHA
+                # 获取当前文件 SHA（注意：URL 只用文件名，不能用绝对路径）
                 headers = {"Authorization": f"Bearer {pat}", "Accept": "application/vnd.github.v3+json"}
                 resp = requests.get(
-                    f"https://api.github.com/repos/{GITHUB_REPO}/contents/{VESSEL_FILE}",
+                    f"https://api.github.com/repos/{GITHUB_REPO}/contents/{os.path.basename(VESSEL_FILE)}",
                     headers=headers, timeout=10
                 )
                 sha = resp.json().get("sha") if resp.status_code == 200 else None
@@ -187,7 +187,7 @@ def _git_commit_push(msg):
                 if sha:
                     data["sha"] = sha
                 resp = requests.put(
-                    f"https://api.github.com/repos/{GITHUB_REPO}/contents/{VESSEL_FILE}",
+                    f"https://api.github.com/repos/{GITHUB_REPO}/contents/{os.path.basename(VESSEL_FILE)}",
                     headers=headers, json=data, timeout=15
                 )
                 if resp.status_code in (200, 201):
