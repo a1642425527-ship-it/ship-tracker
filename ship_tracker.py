@@ -736,15 +736,25 @@ def _try_push_via_api(new_token):
         public_key_b64 = key_data["key"]
 
         # 加密 Token（使用 libsodium crypto_box_seal）
+        import base64
         try:
             import nacl.bindings
-            import base64
-            pub_key_bytes = base64.b64decode(public_key_b64)
-            encrypted = nacl.bindings.crypto_box_seal(new_token.encode(), pub_key_bytes)
-            encrypted_b64 = base64.b64encode(encrypted).decode()
         except ImportError:
-            print("   ⚠️ 需要安装 PyNaCl 才能加密: pip install pynacl")
-            return False
+            print("   ⚠️ 未安装 PyNaCl，正在自动安装...")
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "pynacl", "-q"],
+                    capture_output=True, text=True, timeout=120
+                )
+                import nacl.bindings
+                print("   ✅ PyNaCl 安装成功")
+            except Exception:
+                print("   ⚠️ PyNaCl 自动安装失败，请手动执行: pip install pynacl")
+                return False
+
+        pub_key_bytes = base64.b64decode(public_key_b64)
+        encrypted = nacl.bindings.crypto_box_seal(new_token.encode(), pub_key_bytes)
+        encrypted_b64 = base64.b64encode(encrypted).decode()
 
         # 写入 Secret
         resp = requests.put(
@@ -898,7 +908,12 @@ if __name__ == "__main__":
         if new_token:
             save_token(new_token)
             print(f"\n🔑 新 Token: {new_token[:20]}...{new_token[-10:]}")
-            push_token_to_github(new_token)
+            print("   ① ✅ 本地 token.txt 已更新")
+            print("   ② 正在同步 GitHub Secret...")
+            if push_token_to_github(new_token):
+                print("   ② ✅ GitHub Secret 已同步")
+            else:
+                print("   ② ⚠️ GitHub Secret 同步失败，见上方原因")
 
     elif "--daemon" in sys.argv:
         run_daemon()
