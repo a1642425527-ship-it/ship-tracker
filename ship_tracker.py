@@ -26,6 +26,9 @@ from openpyxl.styles import Font, PatternFill, Alignment
 # 【API 接口地址】NPEDI 船舶排期查询接口
 API_URL = "https://www.npedi.com/onesite-api/vessel/plan/selectContainerDynamicPlan"
 
+# 【月计划接口】动态计划查不到时的兜底（月计划收录了预排的靠离泊计划，字段少但覆盖更全）
+MONTHLY_PLAN_API = "https://www.npedi.com/onesite-api/vessel/plan/getMoonthlyPlanNew"
+
 # 【网页地址】浏览器抓取 Token 时打开的页面
 TOKEN_PAGE_URL = "https://www.npedi.com/onesite/vessel/plan"
 
@@ -320,6 +323,13 @@ def fetch_and_parse(vessel_name, voyage, current_token):
             return "EXPIRED"
 
         if data.get('code') != 200 or not data.get('data') or not data['data'].get('list'):
+            # 动态计划没有 → 尝试月计划兜底（预排靠离泊计划）
+            print(f"\n⚠️ 动态计划未查询到 [{vessel_name}] 航次 [{voyage}]，尝试月计划接口...")
+            monthly = fetch_monthly_plan(vessel_name, voyage, current_token)
+            if isinstance(monthly, dict):
+                return monthly
+            if monthly == "EXPIRED":
+                return "EXPIRED"
             print(f"\n⚠️ 未查询到 [{vessel_name}] 航次 [{voyage}] 的排期信息。")
             return "NO_DATA"
 
@@ -358,6 +368,111 @@ def fetch_and_parse(vessel_name, voyage, current_token):
         print(f"\n❌ 网络请求异常: {e}")
         return "ERROR"
 
+
+# ==========================================
+# 月计划接口兜底（动态计划查不到时使用）
+# ==========================================
+
+def _base_voyage(voyage):
+    """去掉航次末尾的方向后缀字母: 009WJ->009W, 028WA->028W, FW633W->FW633W"""
+    import re
+    m = re.match(r"^(.*[WENS])[A-Z]*$", voyage.strip())
+    return m.group(1) if m else voyage.strip()
+
+
+def _month_date(yearmonth, mmdd, ref_month):
+    """把 年月(202608)+月日(08-16) 拼成完整日期时间；离泊跨年时自动+1年"""
+    try:
+        if not mmdd or len(mmdd) != 5:
+            return None
+        m, d = int(mmdd[:2]), int(mmdd[3:])
+        y = int(str(yearmonth)[:4])
+        if ref_month and m < ref_month:
+            y += 1
+        return f"{y:04d}-{m:02d}-{d:02d} 00:00:00"
+    except Exception:
+        return None
+
+
+def fetch_monthly_plan(vessel_name, voyage, current_token):
+    """月计划接口兜底：动态计划没有该船时，从月计划(预排靠离泊)里找。
+
+    返回与 fetch_and_parse 相同结构的 dict，或 "NO_DATA" / "EXPIRED"。
+    注意：月计划接口的 voyage 参数按出口航次(exportVoyage)过滤，
+    配置里的航次可能是进口航次(带后缀，如 009WJ/028WA)，会自动去掉后缀再查。
+    """
+    voyages_to_try = []
+    for v in (voyage, _base_voyage(voyage)):
+        v = (v or "").strip()
+        if v and v not in voyages_to_try:
+            voyages_to_try.append(v)
+
+    headers = {
+        "Ediauthorization": current_token,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+
+    name_upper = vessel_name.strip().upper()
+    candidates = []
+    for v in voyages_to_try:
+        try:
+            resp = requests.get(MONTHLY_PLAN_API,
+                                params={"voyage": v, "page": "1", "pageSize": "50"},
+                                headers=headers, timeout=20)
+            if resp.status_code == 401:
+                return "EXPIRED"
+            data = resp.json()
+            lst = (data.get("data") or {}).get("list") or []
+        except Exception:
+            continue
+        for it in lst:
+            en = (it.get("vesselNamee") or "").strip()
+            cn = (it.get("vesselNamec") or "").strip()
+            if en.upper() == name_upper or cn == vessel_name.strip():
+                candidates.append(it)
+        if candidates:
+            break
+
+    if not candidates:
+        return "NO_DATA"
+
+    # 取年月最新的记录（即当前航次）
+    it = max(candidates, key=lambda x: str(x.get("ctnPlanyearmonth") or "0"))
+    yearmonth = str(it.get("ctnPlanyearmonth") or "")
+    ref_m = int(yearmonth[4:6]) if len(yearmonth) == 6 and yearmonth[4:6].isdigit() else None
+    load_date = _month_date(yearmonth, it.get("loadDate"), ref_m)
+    leave_date = _month_date(yearmonth, it.get("leaveDate"), ref_m)
+
+    parsed_data = {
+        'update_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'cn_name': it.get("vesselNamec") or '-',
+        'en_name': it.get("vesselNamee") or '-',
+        'voyage': it.get("exportVoyage") or it.get("importVoyage") or '-',
+        'terminal': it.get("operatorcompanyShortname") or '-',
+        'eta': load_date or '暂无',
+        'etd': leave_date or '暂无',
+        'ata': '【尚未靠泊】',
+        'atd': '【尚未离泊】',
+        'ctn_start': '-',
+        'ctn_end': '-',
+        'port_close': '-',
+        'custom_close': '-',
+        'last_port': '-',
+        'next_port': '-',
+        'service_name': it.get("serviceName") or '-',
+        'source': '月计划'
+    }
+
+    # 控制台打印
+    print(f"\n📌 船名: {parsed_data['cn_name']} ({parsed_data['en_name']}) | 🔖 航次: {parsed_data['voyage']} | 🏗️ 码头: {parsed_data['terminal']} 📅 来源: 月计划")
+    print("-" * 45)
+    print(f"⏳ 计划靠泊 (ETA): {parsed_data['eta']} | 计划离泊 (ETD): {parsed_data['etd']}")
+    print(f"⚓ 实际靠泊 (ATA): {parsed_data['ata']} | 实际离泊 (ATD): {parsed_data['atd']}")
+    print(f"🚢 航线: {parsed_data['service_name']}")
+    print(f"📦 进箱/截单: 月计划不含此数据，动态计划发布后自动补充\n")
+
+    return parsed_data
+
 # ==========================================
 # 钉钉推送 & Excel 写入
 # ==========================================
@@ -385,7 +500,11 @@ def send_dingtalk_msg(data_list):
             content += f"# 📝 {remark}\n\n"
         name_line = f"**📌 船名**: {item['cn_name']} ({item['en_name']})"
         name_line += f" | **🔖 航次**: {item['voyage']} | **🏗️ 码头**: {item['terminal']}\n\n"
+        if item.get('source') == '月计划':
+            name_line += f"📅 数据来源: 月计划预排（动态计划未发布）\n\n"
         content += name_line
+        if item.get('service_name') and item['service_name'] not in ('-', ''):
+            content += f"**🚢 航线**: {item['service_name']}\n\n"
         content += f"**⏳ 计划靠泊 (ETA)**: <font color=#008000>{item['eta']}</font> | **计划离泊 (ETD)**: {item['etd']}\n\n"
 
         # 状态变化点：有实际时间时绿色加粗标注
@@ -635,7 +754,7 @@ def save_to_excel(data_list):
                 item['ata'], item['atd'],
                 item['ctn_start'], item['ctn_end'],
                 item['port_close'], item['custom_close'],
-                f"上港:{item['last_port']} -> 下港:{item['next_port']}"
+                item['service_name'] if item.get('service_name') and item['service_name'] not in ('-', '') else f"上港:{item['last_port']} -> 下港:{item['next_port']}"
             ]
             ws.append(row)
 
