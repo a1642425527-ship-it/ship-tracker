@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""临时诊断第8轮：月计划接口里搜 ONE FUTURE / YM TOTALITY（用完即删）"""
+"""临时诊断第9轮：打印命中记录关键字段（用完即删）"""
 import os, requests, json
 
 TOKEN = os.environ.get("NPEDI_TOKEN", "")
@@ -10,48 +10,31 @@ def get(path, params):
     r = requests.get(f"{BASE}{path}", params=params, headers=H, timeout=60)
     return r.json()
 
-def show(label, hits, maxn=8):
-    print(f"== [{label}] 命中 {len(hits)} 条:")
-    for it in hits[:maxn]:
-        print("   ", json.dumps({k: it.get(k) for k in
-              ["ctnPlanyearmonth", "vesselNamec", "vesselNamee", "exportVoyage", "importVoyage",
-               "loadDate", "leaveDate", "serviceName", "serviceCode", "operatorcompanyShortname",
-               "shipagentshipcompany", "vesselImono"]}, ensure_ascii=False))
+KEYS = ["ctnPlanyearmonth", "ctnVesselSysid", "vesselNamec", "vesselNamee", "exportVoyage",
+        "importVoyage", "loadDate", "leaveDate", "serviceName", "serviceCode",
+        "operatorcompanyShortname", "shipagentshipcompany", "vesselImono", "vesselCallno"]
 
-# 1. 月计划: 船名+航次精确查
-for name, voy in [("ONE FUTURE", "009W"), ("YM TOTALITY", "028W"), ("ONE FUTURE", ""), ("YM TOTALITY", "")]:
+def dump(label, lst, names):
+    hits = [it for it in lst if any(n in (it.get("vesselNamee") or "").upper() or n in (it.get("vesselNamec") or "") for n in names)]
+    print(f"## {label}: 共{len(lst)}条, 命中{len(hits)}条")
+    for it in hits:
+        for k in KEYS:
+            v = it.get(k)
+            if v is not None and str(v) != "":
+                print(f"   {k}={v}")
+        print("   ----")
+
+# 精确查询
+for name, voy in [("ONE FUTURE", "009W"), ("YM TOTALITY", "028W")]:
     d = get("/vessel/plan/getMoonthlyPlanNew", {"vesselEnName": name, "voyage": voy})
     lst = (d.get("data") or {}).get("list") or []
-    print(f"--- 月计划 vesselEnName={name} voyage={voy} total={d.get('data',{}).get('total')}")
-    # 搜名字
-    hits = [it for it in lst if "FUTURE" in (it.get("vesselNamee") or "").upper() or "TOTALITY" in (it.get("vesselNamee") or "").upper() or "未来" in (it.get("vesselNamec") or "") or "共明" in (it.get("vesselNamec") or "")]
-    show(f"月计划 {name} {voy} 命中船名", hits)
-    if not hits and lst:
-        show(f"月计划 {name} {voy} 前几条", lst)
+    dump(f"月计划 {name} {voy}", lst, ["FUTURE", "TOTALITY", "未来", "共明"])
 
-# 2. 按船动态: 全量202KB里搜
-d = get("/vessel/plan/getDynamicPlanVessel", {})
-lst = d.get("data") or []
-print(f"--- 按船动态 全量 {len(lst)} 条")
-hits = [it for it in lst if "FUTURE" in (it.get("vesselNamee") or "").upper() or "TOTALITY" in (it.get("vesselNamee") or "").upper() or "未来" in (it.get("vesselNamec") or "") or "共明" in (it.get("vesselNamec") or "")]
-show("按船动态 命中", hits)
-if not hits:
-    # 打印所有唯一船名看看有没有类似
-    names = sorted(set((it.get("vesselNamee") or "") for it in lst))
-    print("   唯一船名数:", len(names))
-    print("   含ONE/YM的:", [n for n in names if "ONE" in n.upper() or n.startswith("YM")][:20])
+# 只按船名（不带航次）
+d = get("/vessel/plan/getMoonthlyPlanNew", {"vesselEnName": "ONE FUTURE"})
+lst = (d.get("data") or {}).get("list") or []
+dump("月计划 ONE FUTURE 不带航次", lst, ["FUTURE", "未来"])
 
-# 3. 动态新: 全量里搜
-d = get("/vessel/plan/getDynamicPlanNew", {})
-lst = (d.get("data") or {}).get("list") or d.get("data") or []
-print(f"--- 动态新 全量 {len(lst)} 条")
-hits = [it for it in lst if "FUTURE" in (it.get("vesselNamee") or "").upper() or "TOTALITY" in (it.get("vesselNamee") or "").upper() or "未来" in (it.get("vesselNamec") or "") or "共明" in (it.get("vesselNamec") or "")]
-show("动态新 命中", hits)
-
-# 4. 月计划全量(39MB太大, 用2026年月份参数缩小) 试yearmonth参数
-for ym in ["202608", "202609"]:
-    d = get("/vessel/plan/getMoonthlyPlanNew", {"yearmonth": ym, "voyage": "009W"})
-    lst = (d.get("data") or {}).get("list") or []
-    print(f"--- 月计划 yearmonth={ym} voyage=009W total={d.get('data',{}).get('total')}")
-    hits = [it for it in lst if "FUTURE" in (it.get("vesselNamee") or "").upper() or "未来" in (it.get("vesselNamec") or "")]
-    show(f"月计划 {ym} 命中", hits)
+d = get("/vessel/plan/getMoonthlyPlanNew", {"vesselEnName": "YM TOTALITY"})
+lst = (d.get("data") or {}).get("list") or []
+dump("月计划 YM TOTALITY 不带航次", lst, ["TOTALITY", "共明"])
