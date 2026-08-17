@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""临时诊断：枚举NPEDI月计划/其他接口 + 参数组合（用完即删）"""
+"""临时诊断第5轮：YM TOTALITY历史 + 全量船期表扫描（用完即删）"""
 import os, requests
 from datetime import datetime, timedelta
 
@@ -7,76 +7,34 @@ TOKEN = os.environ.get("NPEDI_TOKEN", "")
 BASE = "https://www.npedi.com/onesite-api"
 H = {"Ediauthorization": TOKEN, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 today = datetime.now()
-WIDE_B = (today - timedelta(days=400)).strftime("%Y-%m-%d")
-WIDE_E = (today + timedelta(days=400)).strftime("%Y-%m-%d")
 
-def call(label, path, params):
-    try:
-        r = requests.get(f"{BASE}{path}", params=params, headers=H, timeout=10)
-        if r.status_code == 404:
-            print(f"== [{label}] 404"); return
-        if r.status_code == 401:
-            print(f"== [{label}] 401 TOKEN EXPIRED"); return
+def call(label, params, pages=1, grep=None):
+    for pg in range(1, pages + 1):
+        p = dict(params, page=str(pg))
         try:
+            r = requests.get(f"{BASE}/vessel/plan/selectContainerDynamicPlan", params=p, headers=H, timeout=10)
             d = r.json()
-        except Exception:
-            print(f"== [{label}] HTTP {r.status_code} 非JSON: {r.text[:80]}"); return
-        lst = (d.get("data") or {}).get("list") if isinstance(d.get("data"), dict) else None
-        n = len(lst) if lst else 0
-        print(f"== [{label}] code={d.get('code')} msg={d.get('msg')} 条数={n}")
-        if lst:
-            for it in lst[:5]:
-                print(f"   -> {it.get('vesselEnName')} | {it.get('voyage')} | ETA={it.get('eta')} | {it.get('terminal')}")
-    except Exception as e:
-        print(f"== [{label}] EXC {e}")
+            lst = (d.get("data") or {}).get("list") or []
+            hits = [it for it in lst if not grep or grep in (it.get('vesselEnName') or '')]
+            print(f"== [{label} p{pg}] 条数={len(lst)}" + (f" 命中={len(hits)}" if grep else ""))
+            if grep:
+                for it in hits[:10]:
+                    print(f"   -> {it.get('vesselEnName')} | {it.get('voyage')} | ETA={it.get('eta')} | {it.get('terminal')}")
+            elif pg == 1:
+                for it in lst[:5]:
+                    print(f"   e.g. {it.get('vesselEnName')} | {it.get('voyage')} | ETA={it.get('eta')} | {it.get('terminal')}")
+        except Exception as e:
+            print(f"== [{label} p{pg}] EXC {e}")
 
-V = {"vesselEnName": "ONE FUTURE", "voyage": "009W", "etaBegin": WIDE_B, "etaEnd": WIDE_E, "page": "1", "pageSize": "50"}
-V2 = {"vesselEnName": "YM TOTALITY", "voyage": "028W", "etaBegin": WIDE_B, "etaEnd": WIDE_E, "page": "1", "pageSize": "50"}
+# 1. YM TOTALITY 不带航次，超宽窗（查全部历史）
+call("YM TOTALITY 全历史", {"vesselEnName": "YM TOTALITY", "voyage": "", "etaBegin": "2020-01-01", "etaEnd": "2027-12-31", "pageSize": "50"})
 
-# 1. 已知接口+宽窗400天
-call("动态计划 ONE FUTURE 400天", "/vessel/plan/selectContainerDynamicPlan", V)
-call("动态计划 YM TOTALITY 400天", "/vessel/plan/selectContainerDynamicPlan", V2)
+# 2. ONE FUTURE 全历史
+call("ONE FUTURE 全历史", {"vesselEnName": "ONE FUTURE", "voyage": "", "etaBegin": "2020-01-01", "etaEnd": "2027-12-31", "pageSize": "50"})
 
-# 2. 枚举疑似月计划/其他接口
-paths = [
-    "/vessel/plan/selectContainerMonthPlan",
-    "/vessel/plan/selectMonthPlan",
-    "/vessel/plan/selectContainerPlan",
-    "/vessel/plan/selectVesselPlan",
-    "/vessel/plan/selectPlan",
-    "/vessel/plan/selectContainerWeekPlan",
-    "/vessel/plan/selectContainerAnnualPlan",
-    "/vessel/plan/selectContainerPlanList",
-    "/vessel/plan/selectVesselMonthPlan",
-    "/vessel/monthPlan/selectContainerMonthPlan",
-    "/vessel/month/selectContainerMonthPlan",
-    "/vessel/plan/monthPlan",
-    "/vessel/plan/list",
-    "/vessel/plan/selectContainerDynamicPlanList",
-    "/vessel/plan/selectContainerBerthPlan",
-    "/vessel/plan/selectContainerVoyagePlan",
-    "/vessel/plan/selectContainerShipPlan",
-    "/vessel/plan/selectContainerPlanPage",
-    "/vessel/plan/queryContainerPlan",
-    "/vessel/plan/getContainerPlan",
-    "/containerPlan/selectContainerMonthPlan",
-    "/vesselPlan/selectContainerMonthPlan",
-]
-for p in paths:
-    call(f"{p.split('/')[-1]} ONE", p, V)
-
-# 3. 动态计划+额外参数尝试
-extra = [
-    ("带portCode", dict(V, portCode="BLCT3")),
-    ("带line", dict(V, line="ONE")),
-    ("带service", dict(V, service="")),
-    ("中文名未来号", dict(V, vesselEnName="未来")),
-    ("中文名阳明", dict(V2, vesselEnName="阳明")),
-    ("不带voyage", {k: v for k, v in V.items() if k != "voyage"}),
-    ("voyage小写", dict(V, voyage="009w")),
-    ("voyage去0", dict(V, voyage="9W")),
-    ("voyage带连字符", dict(V, voyage="009W-")),
-    ("空船名009W", dict(V, vesselEnName="")),
-]
-for label, params in extra:
-    call(label, "/vessel/plan/selectContainerDynamicPlan", params)
+# 3. 全量船期表扫描：7月-10月 2026，找这两个船名（任何航次）
+for lo, hi in [("2026-07-01", "2026-08-17"), ("2026-08-17", "2026-09-30"), ("2026-09-30", "2026-10-31")]:
+    call(f"全量{lo}~{hi}", {"vesselEnName": "", "voyage": "", "etaBegin": lo, "etaEnd": hi, "pageSize": "50"}, pages=3, grep=None)
+    # 专门 grep 两个船名
+    for nm in ["ONE FUTURE", "YM TOTALITY"]:
+        call(f"grep {nm} {lo}~{hi}", {"vesselEnName": "", "voyage": "", "etaBegin": lo, "etaEnd": hi, "pageSize": "50"}, pages=4, grep=nm)
