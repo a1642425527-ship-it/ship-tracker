@@ -681,31 +681,41 @@ def has_data_changed(data_list):
                 changes.append(f"🔁 {item['cn_name']} {name}: {old_val} → {new_val}")
 
     # ⏰ 超期检测：ETA已过但未靠泊 / ETD已过但未离泊
+    # 只报"近期"超期（过去7天内），避免月计划兜底的历史航次(如7月的旧记录)反复刷屏
     for item in data_list:
         now = datetime.now()
         name = item['cn_name']
 
+        def _overdue(dt_str):
+            if not dt_str or dt_str in ("暂无", "-", ""):
+                return None
+            try:
+                t = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                try:
+                    t = datetime.strptime(dt_str, "%Y-%m-%d")
+                except Exception:
+                    return None
+            days = (now - t).days
+            if 0 <= days <= 7:
+                return t
+            return None
+
         # ETA 已过但未靠泊
         eta_str = item.get("eta", "")
         ata_str = item.get("ata", "")
-        if eta_str and eta_str != "暂无" and ("尚未" in ata_str or not ata_str or ata_str in ("暂无", "-", "")):
-            try:
-                eta_time = datetime.strptime(eta_str, "%Y-%m-%d %H:%M:%S")
-                if eta_time < now:
-                    changes.append(f"⏰ {name} ETA {eta_str} 已过，仍未靠泊！")
-            except:
-                pass
+        if ("尚未" in ata_str or not ata_str or ata_str in ("暂无", "-", "")):
+            t = _overdue(eta_str)
+            if t:
+                changes.append(f"⏰ {name} ETA {eta_str} 已过，仍未靠泊！")
 
         # ETD 已过但未离泊
         etd_str = item.get("etd", "")
         atd_str = item.get("atd", "")
-        if etd_str and etd_str != "暂无" and ("尚未" in atd_str or not atd_str or atd_str in ("暂无", "-", "")):
-            try:
-                etd_time = datetime.strptime(etd_str, "%Y-%m-%d %H:%M:%S")
-                if etd_time < now:
-                    changes.append(f"⏰ {name} ETD {etd_str} 已过，仍未离泊！")
-            except:
-                pass
+        if ("尚未" in atd_str or not atd_str or atd_str in ("暂无", "-", "")):
+            t = _overdue(etd_str)
+            if t:
+                changes.append(f"⏰ {name} ETD {etd_str} 已过，仍未离泊！")
 
     if changes:
         return True, "数据变更:\n" + "\n".join(changes)
