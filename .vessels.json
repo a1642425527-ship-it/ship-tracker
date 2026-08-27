@@ -53,5 +53,10 @@
     "name": "MARY MAERSK",
     "voyage": "635W ",
     "remark": "刘铱闻"
+  },
+  {
+    "name": "CMA CGM ADONIS",
+    "voyage": "0BEONW",
+    "remark": "吕晓彤"
   }
 ]
