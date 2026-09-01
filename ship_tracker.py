@@ -491,7 +491,7 @@ def send_dingtalk_msg(data_list):
             remark_map[f"{v['name']}_{v['voyage']}"] = r
 
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    content = f"### 🚢 船舶排期自动更新\n*{current_time}*\n\n---\n\n"
+    content = f"### 🚢 船舶排期定时通报\n*{current_time}*\n\n---\n\n"
 
     for item in data_list:
         key = f"{item['en_name']}_{item['voyage']}"
@@ -908,11 +908,11 @@ def _try_push_via_api(new_token):
 # ==========================================
 
 def _is_quiet_hours():
-    """判断当前是否在静默时段（CST 23:00 - 07:00）"""
+    """判断当前是否在静默时段（CST 23:00 - 08:00）"""
     if "GITHUB_ACTIONS" not in os.environ:
         return False  # 本地运行不限制
     cst_hour = (datetime.utcnow() + timedelta(hours=8)).hour
-    return cst_hour >= 23 or cst_hour < 7
+    return cst_hour >= 23 or cst_hour < 8
 
 
 def run_once(force_push=False):
@@ -949,15 +949,16 @@ def run_once(force_push=False):
             result = fetch_and_parse(target_name, target_voyage, api_token)
 
             if result == "EXPIRED":
-                send_email_alert(
-                    "⛔ 船舶跟踪系统 - NPEDI Token 已过期",
-                    f"船舶动态跟踪系统：NPEDI Token 已失效\n\n"
-                    f"受影响船舶：{target_name} 航次 {target_voyage}\n\n"
-                    f"解决方法：\n"
-                    f"1. 在 Windows 上进入 ship-tracker 目录\n"
-                    f"2. 运行 python ship_tracker.py --grab-token 抓取新 Token\n"
-                    f"3. 脚本会自动推送到 GitHub Secrets"
-                )
+                if not _is_quiet_hours():
+                    send_email_alert(
+                        "⛔ 船舶跟踪系统 - NPEDI Token 已过期",
+                        f"船舶动态跟踪系统：NPEDI Token 已失效\n\n"
+                        f"受影响船舶：{target_name} 航次 {target_voyage}\n\n"
+                        f"解决方法：\n"
+                        f"1. 在 Windows 上进入 ship-tracker 目录\n"
+                        f"2. 运行 python ship_tracker.py --grab-token 抓取新 Token\n"
+                        f"3. 脚本会自动推送到 GitHub Secrets"
+                    )
                 print("⚠️ Token 已过期！请重新抓取。")
                 print(f"💡 本地运行: python ship_tracker.py --grab-token")
                 sys.exit(1)
@@ -975,15 +976,13 @@ def run_once(force_push=False):
         save_current_state(results_to_save)
         save_to_excel(results_to_save)
 
-        if changed or force_push:
-            if _is_quiet_hours() and not force_push:
-                print(f"\n🌙 静默时段（CST 23:00-07:00），跳过钉钉推送")
-            else:
-                send_dingtalk_msg(results_to_save)
-                print(f"\n📣 已推送钉钉{'（强制推送）' if force_push else ''}")
-                print(f"   {reason}")
+        # 定时通报模式: 每轮都推钉钉(静默时段除外), 不再只推"有变化"
+        if _is_quiet_hours() and not force_push:
+            print(f"\n🌙 静默时段（CST 23:00-08:00），跳过钉钉推送")
         else:
-            print(f"\n⏭️ 数据无变化，跳过钉钉推送")
+            send_dingtalk_msg(results_to_save)
+            print(f"\n📣 已推送钉钉{'（强制推送，静默时段也推）' if force_push else ''}")
+            print(f"   {reason}")
 
         print(f"✅ 本轮查询完成！")
         return True
