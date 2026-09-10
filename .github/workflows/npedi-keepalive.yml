@@ -1,0 +1,52 @@
+name: 🔄 NPEDI 会话保活
+
+on:
+  # 每 20 分钟保活一次，防止若依服务端会话过期
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    name: 保活 NPEDI 会话
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 🐍 设置 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 安装依赖
+        run: pip install requests
+
+      - name: 🔄 保活调用（带 token 调一次接口 = 续命）
+        env:
+          NPEDI_TOKEN: ${{ secrets.NPEDI_TOKEN }}
+        run: python npedi_keepalive.py
+
+      - name: 💓 仓库保活心跳（约每 20 天提交一次，防止 60 天无活动被停用）
+        if: always()
+        run: |
+          NOW=$(date +%s)
+          LAST=0
+          if [ -f heartbeat.txt ]; then LAST=$(cat heartbeat.txt 2>/dev/null || echo 0); fi
+          case "$LAST" in (''|*[!0-9]*) LAST=0;; esac
+          if [ $((NOW - LAST)) -gt 1728000 ]; then
+            echo "$NOW" > heartbeat.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add heartbeat.txt
+            git commit -m "chore: keepalive heartbeat [skip ci]" || true
+            git push || echo "push skipped"
+            echo "心跳已提交"
+          else
+            echo "心跳未到期，跳过"
+          fi
