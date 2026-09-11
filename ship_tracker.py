@@ -527,10 +527,15 @@ def send_dingtalk_msg(data_list):
 
     try:
         response = requests.post(get_webhook(), json=payload)
-        if response.status_code == 200:
+        # ⚠️ 钉钉关键词过滤: HTTP 200 也可能是被拒(errcode 310000) → 必须看 errcode
+        try:
+            ok = (response.json().get("errcode") == 0)
+        except Exception:
+            ok = (response.status_code == 200)
+        if ok:
             print("📣 钉钉消息推送成功！")
         else:
-            print(f"⚠️ 钉钉推送失败: {response.text}")
+            print(f"⚠️ 钉钉推送失败(可能关键词不匹配): HTTP {response.status_code} {response.text[:160]}")
     except Exception as e:
         print(f"⚠️ 钉钉推送出现异常: {e}")
 
