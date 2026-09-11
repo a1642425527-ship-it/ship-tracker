@@ -107,11 +107,13 @@ def main():
 
     if r.status_code == 401 or j.get("code") == 401:
         print("❌ NPEDI 会话已失效 (code=401)")
-        # ⚠️ 文本必须含关键词"船舶", 否则钉钉关键词过滤会拒收(errcode 310000)
-        dingtalk_alert(
-            "⚠️ 【船舶跟踪】NPEDI 船期会话已失效，token 需要重新登录一次。\n"
-            "登录 www.npedi.com 后会话会自动恢复（云保活会接着续期）。"
-        )
+        # ⚠️ 默认【不】推钉钉群 —— 群里有其他同事, 保活的运维告警不应占用通报群。
+        # 需要时才开(设 NPEDI_ALERT_DINGTALK=1); 常规告警走 Hermes → 用户 QQ 私聊。
+        if os.environ.get("NPEDI_ALERT_DINGTALK") == "1":
+            # 推群时文本必须含关键词"船舶", 否则被钉钉关键词过滤拒收(errcode 310000)
+            dingtalk_alert(
+                "⚠️ 【船舶跟踪】NPEDI 船期会话已失效，token 需要重新登录一次。"
+            )
         return 1
 
     print(f"⚠️ 未知响应: HTTP {r.status_code} | {str(j)[:200]}")
