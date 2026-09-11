@@ -42,13 +42,28 @@ def get_webhook():
 
 
 def dingtalk_alert(text):
+    """发送钉钉告警。
+
+    ⚠️ 两个坑(2026-09-11 血泪):
+    1. 机器人开启了「关键词过滤」, 文本必须包含关键词(如 "船舶"), 否则被拒;
+    2. HTTP 200 != 发送成功 —— 关键词不匹配时钉钉仍返回 200 但 body 是
+       {"errcode":310000,...}。必须解析 errcode, 否则会假报"已发送"。
+    """
     url = get_webhook()
     if not url:
         print("(未配置 webhook，跳过告警)")
         return
     try:
         r = requests.post(url, json={"msgtype": "text", "text": {"content": text}}, timeout=10)
-        print(f"钉钉告警已发送: HTTP {r.status_code}")
+        ok = False
+        try:
+            ok = (r.json().get("errcode") == 0)
+        except Exception:
+            ok = (r.status_code == 200)
+        if ok:
+            print(f"钉钉告警已发送: HTTP {r.status_code}")
+        else:
+            print(f"❌ 钉钉告警被拒(未送达): HTTP {r.status_code} | {r.text[:160]}")
     except Exception as e:
         print(f"钉钉告警发送异常: {e}")
 
@@ -92,8 +107,9 @@ def main():
 
     if r.status_code == 401 or j.get("code") == 401:
         print("❌ NPEDI 会话已失效 (code=401)")
+        # ⚠️ 文本必须含关键词"船舶", 否则钉钉关键词过滤会拒收(errcode 310000)
         dingtalk_alert(
-            "⚠️ NPEDI 船期会话已失效，token 需要重新登录一次。\n"
+            "⚠️ 【船舶跟踪】NPEDI 船期会话已失效，token 需要重新登录一次。\n"
             "登录 www.npedi.com 后会话会自动恢复（云保活会接着续期）。"
         )
         return 1
